@@ -2287,10 +2287,42 @@
         // Update SEO meta tags
         function updateSEOMetaTags() {
             document.title = seoSettings.title;
-            document.querySelector('meta[name="description"]').setAttribute('content', seoSettings.description);
-            document.querySelector('meta[name="keywords"]').setAttribute('content', seoSettings.keywords);
             
-            // Update preview - Fixed URL changed from rtechsolutions.com to rTechLearners.com
+            // Update or create meta tags
+            let descMeta = document.querySelector('meta[name="description"]');
+            if (!descMeta) {
+                descMeta = document.createElement('meta');
+                descMeta.name = 'description';
+                document.head.appendChild(descMeta);
+            }
+            descMeta.setAttribute('content', seoSettings.description);
+            
+            let keywordsMeta = document.querySelector('meta[name="keywords"]');
+            if (!keywordsMeta) {
+                keywordsMeta = document.createElement('meta');
+                keywordsMeta.name = 'keywords';
+                document.head.appendChild(keywordsMeta);
+            }
+            keywordsMeta.setAttribute('content', seoSettings.keywords);
+            
+            // Update Open Graph tags
+            let ogTitle = document.querySelector('meta[property="og:title"]');
+            if (!ogTitle) {
+                ogTitle = document.createElement('meta');
+                ogTitle.setAttribute('property', 'og:title');
+                document.head.appendChild(ogTitle);
+            }
+            ogTitle.setAttribute('content', seoSettings.title);
+            
+            let ogDescription = document.querySelector('meta[property="og:description"]');
+            if (!ogDescription) {
+                ogDescription = document.createElement('meta');
+                ogDescription.setAttribute('property', 'og:description');
+                document.head.appendChild(ogDescription);
+            }
+            ogDescription.setAttribute('content', seoSettings.description);
+            
+            // Update preview
             document.getElementById('preview-title').textContent = seoSettings.title;
             document.getElementById('preview-url').textContent = 'https://www.rTechLearners.com';
             document.getElementById('preview-description').textContent = seoSettings.description;
@@ -3166,26 +3198,53 @@
         });
 
         // SEO Form Submission
-        seoForm.addEventListener('submit', (e) => {
+        seoForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            if (!isAdmin) {
+                showError('Admin access required to update SEO settings');
+                return;
+            }
+            
             const title = document.getElementById('seo-title').value;
             const description = document.getElementById('seo-description').value;
             const keywords = document.getElementById('seo-keywords').value;
             
-            // Update SEO settings
-            seoSettings = {
-                title: title,
-                description: description,
-                keywords: keywords
-            };
-            
-            // Save to localStorage
-            localStorage.setItem('rtech-seo', JSON.stringify(seoSettings));
-            
-            // Update meta tags
-            updateSEOMetaTags();
-            
-            alert('SEO settings updated successfully!');
+            if (!title || !description || !keywords) {
+                showError('Please fill in all SEO fields');
+                return;
+            }
+
+            try {
+                const loading = showLoading('Updating SEO settings...');
+                
+                // Update SEO settings via API
+                const response = await apiClient.updateSEOSettings(title, description, keywords, null);
+                hideLoading();
+
+                if (response.success) {
+                    showSuccess('SEO settings updated successfully!');
+                    
+                    // Update local SEO settings
+                    seoSettings = {
+                        title: title,
+                        description: description,
+                        keywords: keywords
+                    };
+                    
+                    // Save to localStorage
+                    localStorage.setItem('rtech-seo', JSON.stringify(seoSettings));
+                    
+                    // Update meta tags on page
+                    updateSEOMetaTags();
+                } else {
+                    showError(response.message || 'Failed to update SEO settings');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Error updating SEO settings. Please try again.');
+                console.error('SEO update error:', error);
+            }
         });
 
         // Payment Methods Selection
@@ -3466,11 +3525,88 @@
         }
 
         // Navigation event listeners
+        // Page metadata configuration
+        const pageMetadata = {
+            'home': {
+                title: 'RTech Solutions - Microsoft Dynamics 365, Power Platform & Azure Training',
+                description: 'RTech Solutions offers expert consulting, live training, and self-paced learning for Dynamics 365, Power Platform, Azure, and Microsoft 365. Elevate your skills with our courses.',
+                keywords: 'Dynamics 365, Power Platform, Azure, Microsoft 365, training, courses'
+            },
+            'about': {
+                title: 'About RTech Solutions',
+                description: 'Learn about RTech Solutions and our mission to deliver expert training and consulting.',
+                keywords: 'about, RTech Solutions, company, mission'
+            },
+            'trainings': {
+                title: 'Live Training Programs - RTech Solutions',
+                description: 'Explore our comprehensive live training programs in Microsoft technologies.',
+                keywords: 'live training, training programs, Microsoft, Dynamics 365'
+            },
+            'courses': {
+                title: 'Self-Paced Courses - RTech Solutions',
+                description: 'Enroll in self-paced courses with flexible learning schedules.',
+                keywords: 'courses, self-paced, online learning, training'
+            },
+            'resources': {
+                title: 'Learning Resources - RTech Solutions',
+                description: 'Access free learning resources and training materials.',
+                keywords: 'resources, learning materials, documentation, guides'
+            },
+            'contact': {
+                title: 'Contact RTech Solutions',
+                description: 'Get in touch with RTech Solutions for inquiries and support.',
+                keywords: 'contact, support, inquiry'
+            }
+        };
+
+        // Update page meta tags dynamically
+        function updatePageMetaTags(pageId) {
+            const metadata = pageMetadata[pageId] || pageMetadata['home'];
+            
+            document.title = metadata.title;
+            
+            let descMeta = document.querySelector('meta[name="description"]');
+            if (!descMeta) {
+                descMeta = document.createElement('meta');
+                descMeta.name = 'description';
+                document.head.appendChild(descMeta);
+            }
+            descMeta.setAttribute('content', metadata.description);
+            
+            let keywordsMeta = document.querySelector('meta[name="keywords"]');
+            if (!keywordsMeta) {
+                keywordsMeta = document.createElement('meta');
+                keywordsMeta.name = 'keywords';
+                document.head.appendChild(keywordsMeta);
+            }
+            keywordsMeta.setAttribute('content', metadata.keywords);
+            
+            // Update Open Graph tags
+            let ogTitle = document.querySelector('meta[property="og:title"]');
+            if (!ogTitle) {
+                ogTitle = document.createElement('meta');
+                ogTitle.setAttribute('property', 'og:title');
+                document.head.appendChild(ogTitle);
+            }
+            ogTitle.setAttribute('content', metadata.title);
+            
+            let ogDescription = document.querySelector('meta[property="og:description"]');
+            if (!ogDescription) {
+                ogDescription = document.createElement('meta');
+                ogDescription.setAttribute('property', 'og:description');
+                document.head.appendChild(ogDescription);
+            }
+            ogDescription.setAttribute('content', metadata.description);
+        }
+
         document.querySelectorAll('a[data-page]').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
                 const pageId = e.target.getAttribute('data-page');
                 showPage(pageId);
+                
+                // Update meta tags for the page
+                updatePageMetaTags(pageId);
                 
                 // Close mobile menu if open
                 mainNav.classList.remove('active');
