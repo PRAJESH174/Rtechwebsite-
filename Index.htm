@@ -1248,6 +1248,96 @@
                 overflow-x: auto;
             }
         }
+
+        /* ===== NOTIFICATION STYLES ===== */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: var(--border-radius);
+            color: white;
+            box-shadow: var(--box-shadow);
+            z-index: 9999;
+            max-width: 300px;
+            word-wrap: break-word;
+            animation: slideIn 0.3s ease;
+        }
+
+        .notification.success {
+            background-color: var(--success);
+        }
+
+        .notification.error {
+            background-color: var(--danger);
+        }
+
+        .notification.info {
+            background-color: var(--info);
+        }
+
+        .notification.loading {
+            background-color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* ===== BUTTON LOADING STATES ===== */
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn.loading {
+            position: relative;
+            color: transparent;
+        }
+
+        .btn.loading::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -3156,25 +3246,30 @@
         });
 
         // Payment Form Submission
-        document.getElementById('card-form').addEventListener('submit', (e) => {
+        document.getElementById('card-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            processPayment('card');
+            await processPayment('card');
         });
 
-        document.getElementById('upi-form').addEventListener('submit', (e) => {
+        document.getElementById('upi-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            processPayment('upi');
+            await processPayment('upi');
         });
 
-        document.getElementById('wallet-pay').addEventListener('click', (e) => {
+        document.getElementById('wallet-pay').addEventListener('click', async (e) => {
             e.preventDefault();
-            processPayment('wallet');
+            await processPayment('wallet');
         });
 
-        // Process Payment
-        function processPayment(method) {
+        // Process Payment via API
+        async function processPayment(method) {
             if (!currentPurchase || !currentUser) {
-                alert('Error processing payment. Please try again.');
+                showError('Error processing payment. Please try again.');
+                return;
+            }
+
+            if (!apiClient.isAuthenticated()) {
+                showError('Please login to complete payment');
                 return;
             }
             
@@ -3182,27 +3277,69 @@
             const tax = Math.round(coursePrice * 0.18);
             const total = coursePrice + tax;
             
-            // Create transaction record
-            const transaction = {
-                id: 'TXN' + Date.now(),
-                courseId: currentPurchase.id,
-                courseTitle: currentPurchase.title,
-                amount: total,
-                userEmail: currentUser.email,
-                date: new Date().toLocaleDateString(),
-                status: 'completed',
-                method: method
-            };
-            
-            // Add to transactions array and save to localStorage
-            transactions.push(transaction);
-            localStorage.setItem('rtech-transactions', JSON.stringify(transactions));
-            
-            // Show success modal
-            document.getElementById('success-amount').textContent = `₹${total}`;
-            document.getElementById('success-course').textContent = currentPurchase.title;
-            closeAllModals();
-            openModal(paymentSuccessModal);
+            try {
+                const loading = showLoading('Processing payment...');
+                
+                // Get payment details based on method
+                const paymentDetails = {};
+                if (method === 'card') {
+                    paymentDetails.cardNumber = document.getElementById('card-number').value.replace(/\s/g, '');
+                    paymentDetails.cardName = document.getElementById('card-name').value;
+                    paymentDetails.cardExpiry = document.getElementById('card-expiry').value;
+                    paymentDetails.cardCVV = document.getElementById('card-cvv').value;
+                } else if (method === 'upi') {
+                    paymentDetails.upiId = document.getElementById('upi-id').value;
+                } else if (method === 'wallet') {
+                    paymentDetails.wallet = document.getElementById('wallet-select').value;
+                }
+                
+                // Process payment via API
+                const response = await apiClient.processPayment(
+                    currentPurchase.id,
+                    total,
+                    method,
+                    paymentDetails
+                );
+                hideLoading();
+
+                if (response.success) {
+                    showSuccess('Payment successful!');
+                    
+                    // Add transaction record
+                    const transaction = {
+                        id: response.data.transactionId || 'TXN' + Date.now(),
+                        courseId: currentPurchase.id,
+                        courseTitle: currentPurchase.title,
+                        amount: total,
+                        userEmail: currentUser.email,
+                        date: new Date().toLocaleDateString(),
+                        status: 'completed',
+                        method: method
+                    };
+                    
+                    transactions.push(transaction);
+                    localStorage.setItem('rtech-transactions', JSON.stringify(transactions));
+                    
+                    // Show success modal
+                    document.getElementById('success-amount').textContent = `₹${total}`;
+                    document.getElementById('success-course').textContent = currentPurchase.title;
+                    closeAllModals();
+                    openModal(paymentSuccessModal);
+                    
+                    // Clear form
+                    if (method === 'card') {
+                        document.getElementById('card-form').reset();
+                    } else if (method === 'upi') {
+                        document.getElementById('upi-form').reset();
+                    }
+                } else {
+                    showError(response.message || 'Payment failed. Please try again.');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Payment error. Please try again.');
+                console.error('Payment processing error:', error);
+            }
         }
 
         // Success Continue Button
