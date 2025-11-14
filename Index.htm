@@ -2089,6 +2089,7 @@
     </div>
 
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <script src="api-integration.js"></script>
     <script>
         // Initialize Quill Editors
         const quill = new Quill('#editor', {
@@ -2121,19 +2122,58 @@
             placeholder: 'Write your post here...'
         });
 
-        // User state management
+        // User state management - now integrated with backend API
         let currentUser = null;
         let isAdmin = false;
-        let posts = JSON.parse(localStorage.getItem('rtech-posts')) || [];
-        let users = JSON.parse(localStorage.getItem('rtech-users')) || [];
-        let transactions = JSON.parse(localStorage.getItem('rtech-transactions')) || [];
-        let videos = JSON.parse(localStorage.getItem('rtech-videos')) || [];
+        let posts = [];
+        let users = [];
+        let transactions = [];
+        let videos = [];
         let currentPurchase = null;
         let seoSettings = JSON.parse(localStorage.getItem('rtech-seo')) || {
             title: 'RTech Solutions - Microsoft Dynamics 365, Power Platform & Azure Training',
             description: 'RTech Solutions offers expert consulting, live training, and self-paced learning for Dynamics 365, Power Platform, Azure, and Microsoft 365. Elevate your skills with our courses.',
             keywords: 'Dynamics 365, Power Platform, Azure, Microsoft 365, training, courses, consulting, RTech Solutions'
         };
+
+        // Initialize API client and sync data
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Load cached user if available
+            const cachedUser = localStorage.getItem('currentUser');
+            if (cachedUser) {
+                currentUser = JSON.parse(cachedUser);
+                isAdmin = currentUser.isAdmin || false;
+            }
+
+            // Sync posts from API
+            try {
+                const postsData = await apiClient.getPosts(1, 20);
+                if (postsData.success && postsData.data) {
+                    posts = postsData.data;
+                    localStorage.setItem('rtech-posts', JSON.stringify(posts));
+                }
+            } catch (error) {
+                console.warn('Failed to sync posts from API, using cached data:', error);
+                posts = JSON.parse(localStorage.getItem('rtech-posts')) || [];
+            }
+
+            // Sync videos from API
+            try {
+                const videosData = await apiClient.getVideos(1, 20);
+                if (videosData.success && videosData.data) {
+                    videos = videosData.data;
+                    localStorage.setItem('rtech-videos', JSON.stringify(videos));
+                }
+            } catch (error) {
+                console.warn('Failed to sync videos from API, using cached data:', error);
+                videos = JSON.parse(localStorage.getItem('rtech-videos')) || [];
+            }
+
+            // Render initial content
+            renderPosts();
+            renderVideos();
+            updateAdminButtonVisibility();
+        });
 
         // Generate random admin credentials
         function generateAdminCredentials() {
@@ -2662,41 +2702,52 @@
         });
 
         // Form Submissions
-        loginForm.addEventListener('submit', (e) => {
+        loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('login-email').value;
             const password = document.getElementById('login-password').value;
             
             // Simple validation
             if (!email || !password) {
-                alert('Please fill in all fields');
+                showError('Please fill in all fields');
                 return;
             }
             
-            // In a real app, this would be an API call
-            currentUser = {
-                name: email.split('@')[0],
-                email: email
-            };
-            
-            // Add to users if not already there
-            const userExists = users.some(u => u.email === email);
-            if (!userExists) {
-                users.push({
-                    name: currentUser.name,
-                    email: currentUser.email,
-                    joinDate: new Date().toLocaleDateString(),
-                    isAdmin: false // Regular users are not admins
-                });
-                localStorage.setItem('rtech-users', JSON.stringify(users));
+            try {
+                const loading = showLoading('Logging in...');
+                const response = await apiClient.login(email, password);
+                hideLoading();
+
+                if (response.success) {
+                    currentUser = response.data;
+                    isAdmin = currentUser.isAdmin || false;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    
+                    showSuccess('Login successful!');
+                    closeModal(loginModal);
+                    updateAdminButtonVisibility();
+                    
+                    // Clear form
+                    loginForm.reset();
+                    
+                    // Sync data from API
+                    await Promise.all([
+                        syncPostsData(),
+                        syncVideosData()
+                    ]);
+                    
+                    renderPosts();
+                } else {
+                    showError(response.message || 'Login failed');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Login error. Please try again.');
+                console.error('Login error:', error);
             }
-            
-            alert('Login successful!');
-            closeModal(loginModal);
-            updateUIForLoggedInUser();
         });
 
-        signupForm.addEventListener('submit', (e) => {
+        signupForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('signup-name').value;
             const email = document.getElementById('signup-email').value;
@@ -2705,85 +2756,115 @@
             
             // Simple validation
             if (!name || !email || !mobile || !password) {
-                alert('Please fill in all fields');
+                showError('Please fill in all fields');
                 return;
             }
             
-            // Store user data temporarily for OTP verification
-            window.tempUserData = { name, email, mobile, password };
-            
-            // Show OTP modal
-            closeModal(signupModal);
-            openModal(otpModal);
-            
-            // In a real app, this would send OTP to email/mobile
-            alert('OTP sent to your email/mobile. For demo, use 123456');
-        });
-
-        otpForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const otp = Array.from(otpInputs).map(input => input.value).join('');
-            
-            // In a real app, this would verify OTP with server
-            if (otp === '123456') {
-                // Create user account
-                currentUser = {
-                    name: window.tempUserData.name,
-                    email: window.tempUserData.email
-                };
+            try {
+                const loading = showLoading('Sending OTP...');
                 
-                // Add to users
-                users.push({
-                    name: currentUser.name,
-                    email: currentUser.email,
-                    joinDate: new Date().toLocaleDateString(),
-                    isAdmin: false // Regular users are not admins
-                });
-                localStorage.setItem('rtech-users', JSON.stringify(users));
+                // Store user data temporarily for OTP verification
+                window.tempUserData = { name, email, mobile, password };
                 
-                alert('Account created successfully! Please login.');
-                closeModal(otpModal);
-                openModal(loginModal);
+                // Send OTP via API
+                const response = await apiClient.sendOTP(email, mobile);
+                hideLoading();
                 
-                // Clear OTP inputs
-                otpInputs.forEach(input => input.value = '');
-            } else {
-                alert('Invalid OTP. Please try again.');
+                if (response.success) {
+                    showSuccess('OTP sent successfully!');
+                    closeModal(signupModal);
+                    openModal(otpModal);
+                } else {
+                    showError(response.message || 'Failed to send OTP');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Error sending OTP. Please try again.');
+                console.error('Signup error:', error);
             }
         });
 
-        adminLoginForm.addEventListener('submit', (e) => {
+        otpForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const otp = Array.from(otpInputs).map(input => input.value).join('');
+            
+            if (!otp || otp.length !== 6) {
+                showError('Please enter a valid 6-digit OTP');
+                return;
+            }
+            
+            try {
+                const loading = showLoading('Verifying OTP...');
+                
+                // Verify OTP via API
+                const otpResponse = await apiClient.verifyOTP(otp);
+                
+                if (otpResponse.success) {
+                    // Create user account via signup API
+                    const signupResponse = await apiClient.signup(
+                        window.tempUserData.name,
+                        window.tempUserData.email,
+                        window.tempUserData.mobile,
+                        window.tempUserData.password
+                    );
+                    hideLoading();
+
+                    if (signupResponse.success) {
+                        currentUser = signupResponse.data;
+                        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                        
+                        showSuccess('Account created successfully!');
+                        closeModal(otpModal);
+                        
+                        // Clear OTP inputs
+                        otpInputs.forEach(input => input.value = '');
+                        signupForm.reset();
+                        
+                        // Auto-show login modal
+                        setTimeout(() => {
+                            openModal(loginModal);
+                        }, 1500);
+                    } else {
+                        showError(signupResponse.message || 'Signup failed');
+                    }
+                } else {
+                    hideLoading();
+                    showError(otpResponse.message || 'Invalid OTP. Please try again.');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Error verifying OTP. Please try again.');
+                console.error('OTP verification error:', error);
+            }
+        });
+
+        adminLoginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const username = document.getElementById('admin-username').value;
             const password = document.getElementById('admin-password').value;
             
-            // Get stored admin credentials
-            const credentials = getAdminCredentials();
-            
-            // Check if credentials match
-            if (credentials && username === credentials.username && password === credentials.password) {
-                isAdmin = true;
-                
-                // Update user record to mark as admin
-                const adminUser = users.find(u => u.email === 'admin@rtechsolutions.com');
-                if (adminUser) {
-                    adminUser.isAdmin = true;
+            try {
+                const loading = showLoading('Admin login...');
+                const response = await apiClient.adminLogin(username, password);
+                hideLoading();
+
+                if (response.success) {
+                    currentUser = response.data;
+                    isAdmin = true;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    
+                    showSuccess('Admin login successful!');
+                    closeModal(adminLoginModal);
+                    showPage('admin');
+                    updateAdminButtonVisibility();
+                    adminLoginForm.reset();
                 } else {
-                    users.push({
-                        name: 'Admin',
-                        email: 'admin@rtechsolutions.com',
-                        joinDate: new Date().toLocaleDateString(),
-                        isAdmin: true
-                    });
+                    showError(response.message || 'Invalid admin credentials');
                 }
-                localStorage.setItem('rtech-users', JSON.stringify(users));
-                
-                closeModal(adminLoginModal);
-                showPage('admin');
-                updateAdminButtonVisibility();
-                alert('Admin login successful!');
-            } else {
-                alert('Invalid admin credentials');
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Admin login failed. Please check your credentials.');
+                console.error('Admin login error:', error);
             }
         });
 
@@ -2798,44 +2879,54 @@
             showPage('home');
         });
 
-        publishPostBtn.addEventListener('click', () => {
+        publishPostBtn.addEventListener('click', async () => {
             const content = quill.root.innerHTML;
             
             if (!content || content === '<p><br></p>') {
-                alert('Please write something before publishing');
+                showError('Please write something before publishing');
                 return;
             }
             
-            // Create new post
-            const newPost = {
-                id: Date.now(),
-                author: currentUser.name,
-                authorInitial: currentUser.name.charAt(0).toUpperCase(),
-                title: 'New Post',
-                content: content,
-                date: new Date().toLocaleDateString(),
-                likes: 0,
-                comments: 0
-            };
-            
-            // Extract title from content if possible
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
-            const firstHeading = tempDiv.querySelector('h1, h2, h3');
-            if (firstHeading) {
-                newPost.title = firstHeading.textContent;
+            if (!currentUser) {
+                showError('Please login to publish a post');
+                return;
             }
-            
-            // Add to posts array and save to localStorage
-            posts.unshift(newPost);
-            localStorage.setItem('rtech-posts', JSON.stringify(posts));
-            
-            // Reset editor and go back to home
-            quill.setText('');
-            showPage('home');
-            renderPosts();
-            
-            alert('Post published successfully!');
+
+            try {
+                const loading = showLoading('Publishing post...');
+                
+                // Extract title from content if possible
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = content;
+                const firstHeading = tempDiv.querySelector('h1, h2, h3');
+                const title = firstHeading ? firstHeading.textContent : 'New Post';
+                
+                // Extract tags from content or use default
+                const tags = ['general'];
+                
+                // Create post via API
+                const response = await apiClient.createPost(title, content, 'general', tags);
+                hideLoading();
+
+                if (response.success) {
+                    showSuccess('Post published successfully!');
+                    
+                    // Add to local posts array
+                    posts.unshift(response.data);
+                    localStorage.setItem('rtech-posts', JSON.stringify(posts));
+                    
+                    // Reset editor and go back to home
+                    quill.setText('');
+                    showPage('home');
+                    renderPosts();
+                } else {
+                    showError(response.message || 'Failed to publish post');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Error publishing post. Please try again.');
+                console.error('Post publish error:', error);
+            }
         });
 
         // Admin Post Editor Functions
@@ -2843,44 +2934,49 @@
             showAdminSection('posts');
         });
 
-        adminPublishPostBtn.addEventListener('click', () => {
+        adminPublishPostBtn.addEventListener('click', async () => {
             const content = adminQuill.root.innerHTML;
             
             if (!content || content === '<p><br></p>') {
-                alert('Please write something before publishing');
+                showError('Please write something before publishing');
                 return;
             }
-            
-            // Create new post
-            const newPost = {
-                id: Date.now(),
-                author: 'Admin',
-                authorInitial: 'A',
-                title: 'New Post',
-                content: content,
-                date: new Date().toLocaleDateString(),
-                likes: 0,
-                comments: 0
-            };
-            
-            // Extract title from content if possible
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
-            const firstHeading = tempDiv.querySelector('h1, h2, h3');
-            if (firstHeading) {
-                newPost.title = firstHeading.textContent;
+
+            try {
+                const loading = showLoading('Publishing admin post...');
+                
+                // Extract title from content if possible
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = content;
+                const firstHeading = tempDiv.querySelector('h1, h2, h3');
+                const title = firstHeading ? firstHeading.textContent : 'Admin Post';
+                
+                // Extract tags from content or use default
+                const tags = ['admin', 'announcement'];
+                
+                // Create post via API
+                const response = await apiClient.createPost(title, content, 'admin', tags);
+                hideLoading();
+
+                if (response.success) {
+                    showSuccess('Admin post published successfully!');
+                    
+                    // Add to local posts array
+                    posts.unshift(response.data);
+                    localStorage.setItem('rtech-posts', JSON.stringify(posts));
+                    
+                    // Reset editor and go back to posts list
+                    adminQuill.setText('');
+                    showAdminSection('posts');
+                    loadPostsTable();
+                } else {
+                    showError(response.message || 'Failed to publish post');
+                }
+            } catch (error) {
+                hideLoading();
+                showError(error.message || 'Error publishing admin post. Please try again.');
+                console.error('Admin post publish error:', error);
             }
-            
-            // Add to posts array and save to localStorage
-            posts.unshift(newPost);
-            localStorage.setItem('rtech-posts', JSON.stringify(posts));
-            
-            // Reset editor and go back to posts list
-            adminQuill.setText('');
-            showAdminSection('posts');
-            renderPosts();
-            
-            alert('Post published successfully!');
         });
 
         // Video Upload Form
