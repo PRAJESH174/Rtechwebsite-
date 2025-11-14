@@ -1,0 +1,40 @@
+# RTech Solutions Robots.txt
+# This file tells search engines how to crawl the website
+
+# Default rule for all search engines
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /private/
+Disallow: /temp/
+Disallow: /test/
+Disallow: /api/
+Disallow: /*.pdf$
+Disallow: /uploads/temp/
+Crawl-delay: 2
+
+# Google specific rules
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+# Bing specific rules
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# Facebook crawler
+User-agent: facebookexternalhit
+Allow: /
+
+# Twitter crawler
+User-agent: Twitterbot
+Allow: /
+
+# Sitemap location
+Sitemap: https://www.rTechLearners.com/sitemap.xml
+Sitemap: https://www.rTechLearners.com/sitemap-posts.xml
+Sitemap: https://www.rTechLearners.com/sitemap-videos.xml
+
+# Specify canonical URL to avoid duplicate content issues
+# Host: https://www.rTechLearners.com

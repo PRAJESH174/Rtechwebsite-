@@ -1,0 +1,117 @@
+{
+  "name": "RTech Solutions",
+  "short_name": "RTech",
+  "description": "Expert consulting, live training, and self-paced learning for Dynamics 365, Power Platform, Azure, and Microsoft 365.",
+  "start_url": "https://www.rTechLearners.com/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#0056b3",
+  "categories": [
+    "education",
+    "business"
+  ],
+  "screenshots": [
+    {
+      "src": "https://cdn.rTechLearners.com/screenshots/screenshot-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "https://cdn.rTechLearners.com/screenshots/screenshot-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "icons": [
+    {
+      "src": "https://cdn.rTechLearners.com/favicon.ico",
+      "sizes": "16x16 32x32 48x48",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "https://cdn.rTechLearners.com/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn.rTechLearners.com/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn.rTechLearners.com/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn.rTechLearners.com/android-chrome-192x192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://cdn.rTechLearners.com/android-chrome-512x512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Browse Courses",
+      "short_name": "Courses",
+      "description": "Browse our comprehensive courses",
+      "url": "/?source=pwa-courses",
+      "icons": [
+        {
+          "src": "https://cdn.rTechLearners.com/shortcuts/courses.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Watch Videos",
+      "short_name": "Videos",
+      "description": "Watch training videos",
+      "url": "/?source=pwa-videos",
+      "icons": [
+        {
+          "src": "https://cdn.rTechLearners.com/shortcuts/videos.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Blog Articles",
+      "short_name": "Blog",
+      "description": "Read latest blog articles",
+      "url": "/?source=pwa-blog",
+      "icons": [
+        {
+          "src": "https://cdn.rTechLearners.com/shortcuts/blog.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "prefer_related_applications": false
+}
