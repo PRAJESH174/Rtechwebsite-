@@ -6,9 +6,46 @@ const compression = require('compression');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const bcryptjs = require('bcryptjs');
+const multer = require('multer');
 
 // Load environment variables
 dotenv.config();
+
+// ===== PHASE 3: INFRASTRUCTURE IMPORTS =====
+const { DatabaseConnection } = require('./database/mongodb-config');
+const { RedisCache, SessionStore } = require('./cache/redis-config');
+const { EmailService } = require('./services/email-service');
+const { StorageService } = require('./services/storage-service');
+const { 
+  applySecurityHeaders, 
+  httpsRedirect, 
+  getCorsConfig,
+  SSLConfig 
+} = require('./security/ssl-config');
+const { 
+  Logger, 
+  HealthChecker, 
+  MetricsCollector, 
+  ErrorTracker,
+  createMonitoringMiddleware 
+} = require('./monitoring/monitoring-config');
+
+// ===== PHASE 3: INFRASTRUCTURE INITIALIZATION =====
+const db = new DatabaseConnection();
+const cache = new RedisCache();
+const emailService = new EmailService();
+const storage = new StorageService();
+const logger = new Logger();
+const metrics = new MetricsCollector(logger);
+const healthChecker = new HealthChecker(logger);
+const errorTracker = new ErrorTracker(logger);
+
+// Global exports for easy access
+global.db = db;
+global.cache = cache;
+global.emailService = emailService;
+global.storage = storage;
+global.logger = logger;
 
 // Initialize Express app
 const app = express();
@@ -18,14 +55,113 @@ const config = process.env.NODE_ENV === 'production'
   ? require('./config/production.config.js')
   : require('./config/development.config.js');
 
+// ===== PHASE 3: INFRASTRUCTURE INITIALIZATION FUNCTION =====
+
+async function initializeInfrastructure() {
+  try {
+    console.log('\n🚀 Initializing Phase 3 Infrastructure...\n');
+
+    // Initialize Database
+    try {
+      await db.connect();
+      console.log('✅ Database connected (MongoDB)');
+      await db.createIndexes();
+      console.log('✅ Database indexes created');
+    } catch (error) {
+      logger.warn('Database initialization skipped', { error: error.message });
+      console.log('⚠️  Database unavailable - using in-memory fallback');
+    }
+
+    // Initialize Cache
+    try {
+      await cache.connect();
+      console.log('✅ Cache connected (Redis)');
+    } catch (error) {
+      logger.warn('Cache initialization skipped', { error: error.message });
+      console.log('⚠️  Cache unavailable - skipping caching layer');
+    }
+
+    // Initialize Email Service
+    try {
+      await emailService.initialize();
+      console.log('✅ Email service initialized');
+    } catch (error) {
+      logger.warn('Email service initialization skipped', { error: error.message });
+      console.log('⚠️  Email service unavailable');
+    }
+
+    // Initialize Storage Service
+    try {
+      await storage.initialize();
+      console.log('✅ File storage initialized');
+    } catch (error) {
+      logger.warn('Storage service initialization skipped', { error: error.message });
+      console.log('⚠️  File storage unavailable');
+    }
+
+    // Initialize Error Tracking
+    try {
+      await errorTracker.initialize();
+      console.log('✅ Error tracking initialized');
+    } catch (error) {
+      logger.warn('Error tracking initialization skipped', { error: error.message });
+    }
+
+    // Register Health Checks
+    healthChecker.registerCheck('database', async () => {
+      try {
+        return await db.healthCheck();
+      } catch {
+        return false;
+      }
+    });
+
+    healthChecker.registerCheck('cache', async () => {
+      try {
+        return await cache.healthCheck();
+      } catch {
+        return false;
+      }
+    });
+
+    healthChecker.registerCheck('email', async () => {
+      try {
+        return await emailService.healthCheck();
+      } catch {
+        return false;
+      }
+    });
+
+    // Start periodic health checks
+    healthChecker.startPeriodicChecks();
+    console.log('✅ Health checks configured');
+
+    console.log('\n✅ Infrastructure initialization complete!\n');
+
+  } catch (error) {
+    logger.error('Infrastructure initialization failed', { error: error.message });
+    console.error('❌ Infrastructure initialization failed:', error.message);
+    // Don't exit - continue with in-memory fallback
+  }
+}
+
 // ===== MIDDLEWARE SETUP =====
+
+// Apply Phase 3 Security Headers
+applySecurityHeaders(app);
+
+// Apply HTTPS Redirect
+app.use(httpsRedirect());
+
+// Apply Phase 3 Monitoring Middleware
+app.use(createMonitoringMiddleware(logger, metrics));
 
 // Security Middleware
 app.use(helmet(config.security.helmet));
 app.use(compression());
 
 // CORS Configuration
-app.use(cors(config.cors));
+app.use(cors(getCorsConfig()));
 
 // Rate Limiting
 const generalLimiter = rateLimit({
@@ -50,6 +186,9 @@ app.use('/api/auth/signup', authLimiter);
 // Body Parser
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// File Upload Middleware
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Static Files
 app.use(express.static('public'));
@@ -1190,13 +1329,89 @@ app.get('/api/admin/seo-settings', (req, res) => {
 
 // ===== HEALTH CHECK & ANALYTICS =====
 
-// GET /api/health - Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date()
-  });
+// GET /api/health - Enhanced health check with Phase 3 monitoring
+app.get('/api/health', async (req, res) => {
+  try {
+    const healthStatus = await healthChecker.performChecks();
+    const uptime = process.uptime();
+    
+    res.json({
+      success: true,
+      message: 'Server is running',
+      status: healthStatus.overall,
+      uptime: Math.floor(uptime),
+      timestamp: new Date(),
+      checks: healthStatus.checks
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Health check failed',
+      error: error.message,
+      timestamp: new Date()
+    });
+  }
+});
+
+// GET /api/metrics - Performance metrics
+app.get('/api/metrics', (req, res) => {
+  try {
+    const metricsData = metrics.getMetrics();
+    res.json({
+      success: true,
+      data: metricsData,
+      timestamp: new Date()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve metrics',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/videos/upload - File upload endpoint with Phase 3 storage
+app.post('/api/videos/upload', upload.single('video'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file provided'
+      });
+    }
+
+    // Validate file
+    const validation = storage.validateFile(req.file, 'VIDEO');
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: validation.error
+      });
+    }
+
+    // Upload to storage service
+    const result = await storage.upload(req.file, 'videos', {
+      metadata: { userId: req.user?.id || 'anonymous' }
+    });
+
+    res.json({
+      success: true,
+      message: 'Video uploaded successfully',
+      data: {
+        url: result.url,
+        key: result.key || result.fileName,
+        provider: result.provider
+      }
+    });
+  } catch (error) {
+    logger.error('Video upload failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Video upload failed',
+      error: error.message
+    });
+  }
 });
 
 // POST /api/analytics/track - Track analytics event
@@ -1256,29 +1471,88 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || config.server.port;
 
-app.listen(PORT, () => {
-  console.log(`
+async function startServer() {
+  // Initialize Phase 3 infrastructure
+  await initializeInfrastructure();
+
+  // Start HTTP/HTTPS server
+  if (process.env.SSL_ENABLED === 'true' && process.env.NODE_ENV === 'production') {
+    try {
+      const sslConfig = new SSLConfig();
+      const httpsServer = sslConfig.createHttpsServer(app);
+      httpsServer.listen(sslConfig.httpsPort, () => {
+        console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║              RTech Solutions - Backend Server                   ║
+║              RTech Academy - Backend Server                    ║
 ╠════════════════════════════════════════════════════════════════╣
 ║                                                                 ║
-║  ✅ Server running on: http://localhost:${PORT}                  ║
+║  ✅ HTTPS Server running on: https://localhost:${sslConfig.httpsPort}        ║
 ║  ✅ Environment: ${process.env.NODE_ENV || 'development'}                        ║
-║  ✅ Database: In-Memory (Demo Mode)                            ║
+║  ✅ Database: MongoDB (Phase 3)                                ║
+║  ✅ Cache: Redis (Phase 3)                                     ║
+║  ✅ Email: ${process.env.EMAIL_PROVIDER || 'Not Configured'} (Phase 3)                    ║
+║  ✅ Storage: ${process.env.STORAGE_PROVIDER || 'Not Configured'} (Phase 3)                  ║
 ║                                                                 ║
 ║  API Documentation:                                             ║
 ║  • Authentication: /api/auth/*                                 ║
 ║  • Users: /api/users/*                                         ║
 ║  • Posts: /api/posts/*                                         ║
-║  • Videos: /api/videos/*                                       ║
+║  • Videos: /api/videos/*, /api/videos/upload (Phase 3)        ║
 ║  • Courses: /api/courses/*                                     ║
 ║  • Payments: /api/payments/*                                   ║
 ║  • Admin: /api/admin/*                                         ║
 ║  • Analytics: /api/analytics/*                                 ║
-║  • Health: /api/health                                         ║
+║  • Health: /api/health (Phase 3 enhanced)                      ║
+║  • Metrics: /api/metrics (Phase 3)                             ║
 ║                                                                 ║
 ╚════════════════════════════════════════════════════════════════╝
-  `);
+        `);
+      });
+    } catch (error) {
+      console.error('HTTPS server creation failed, falling back to HTTP:', error.message);
+      startHttpServer();
+    }
+  } else {
+    startHttpServer();
+  }
+}
+
+function startHttpServer() {
+  app.listen(PORT, () => {
+    console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║              RTech Academy - Backend Server                    ║
+╠════════════════════════════════════════════════════════════════╣
+║                                                                 ║
+║  ✅ HTTP Server running on: http://localhost:${PORT}             ║
+║  ✅ Environment: ${process.env.NODE_ENV || 'development'}                        ║
+║  ✅ Database: MongoDB (Phase 3)                                ║
+║  ✅ Cache: Redis (Phase 3)                                     ║
+║  ✅ Email: ${process.env.EMAIL_PROVIDER || 'Not Configured'} (Phase 3)                    ║
+║  ✅ Storage: ${process.env.STORAGE_PROVIDER || 'Not Configured'} (Phase 3)                  ║
+║                                                                 ║
+║  API Documentation:                                             ║
+║  • Authentication: /api/auth/*                                 ║
+║  • Users: /api/users/*                                         ║
+║  • Posts: /api/posts/*                                         ║
+║  • Videos: /api/videos/*, /api/videos/upload (Phase 3)        ║
+║  • Courses: /api/courses/*                                     ║
+║  • Payments: /api/payments/*                                   ║
+║  • Admin: /api/admin/*                                         ║
+║  • Analytics: /api/analytics/*                                 ║
+║  • Health: /api/health (Phase 3 enhanced)                      ║
+║  • Metrics: /api/metrics (Phase 3)                             ║
+║                                                                 ║
+╚════════════════════════════════════════════════════════════════╝
+    `);
+  });
+}
+
+// Start server
+startServer().catch(error => {
+  logger.error('Server startup failed', { error: error.message });
+  console.error('❌ Server startup failed:', error.message);
+  process.exit(1);
 });
 
 module.exports = app;

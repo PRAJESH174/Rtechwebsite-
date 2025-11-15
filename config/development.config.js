@@ -46,6 +46,18 @@ module.exports = {
     }
   },
 
+  // Backwards-compatible top-level rate limiting (used by server)
+  rateLimiting: {
+    windowMs: 15 * 60 * 1000,
+    max: 100
+  },
+
+  // Backwards-compatible top-level rate limiting (used by server)
+  rateLimiting: {
+    windowMs: 15 * 60 * 1000,
+    max: 100
+  },
+
   // Security Configuration
   security: {
     cors: {
